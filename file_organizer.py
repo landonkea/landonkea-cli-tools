@@ -25,6 +25,10 @@ from datetime import datetime
 # CATEGORY DEFINITIONS
 # Maps file extensions to folder names.
 # Each key is a folder name, each value is a list of extensions.
+# NOTE: ".json" intentionally appears in both "Code" and "Data" — since
+# get_category() returns on the first match found, "Code" wins for
+# .json files simply because it's defined earlier in this dict. That's
+# a deliberate (if slightly arbitrary) tie-break, not a bug.
 CATEGORIES = {
     "Documents": [".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt", ".xls", ".xlsx", ".ppt", ".pptx", ".csv"],
     "Images": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tiff", ".ico"],
@@ -72,6 +76,16 @@ def get_category(filename):
 def scan_directory(directory, recursive=False):
     """
     Scan a directory for files and return organized info.
+
+    HOW: uses Path.glob() with either "*" (direct children only) or
+    "**/*" (every file in every subdirectory) depending on the
+    `recursive` flag, then filters out anything we don't want to
+    move: subdirectories themselves, hidden/dotfiles, and the tool's
+    own log file.
+
+    WHY the log file is excluded by name: without this, a second run
+    of the organizer would try to "organize" its own bookkeeping file,
+    which would break undo_organize()'s ability to find it later.
 
     Args:
         directory (str): Path to the directory to scan
@@ -125,6 +139,10 @@ def format_size(size_bytes):
     """
     Convert bytes to human-readable format.
 
+    HOW: repeatedly divide by 1024 and move to the next unit until the
+    value is small enough, matching how most file browsers display
+    sizes.
+
     Args:
         size_bytes (int): Size in bytes
 
@@ -152,67 +170,111 @@ def format_size(size_bytes):
     return f"{size_bytes:.1f} {units[unit_index]}"
 
 
-def organize_files(directory, dry_run=False, force=False, recursive=False, quiet=False):
+def group_files_by_category(files):
     """
-    Organize files in a directory by moving them into category folders.
+    Group a flat list of file-info dicts into a dict keyed by category.
+
+    HOW: builds the groups with a plain dict instead of
+    collections.defaultdict — this repo intentionally avoids extra
+    imports for something this small.
 
     Args:
-        directory (str): Path to the directory to organize
-        dry_run (bool): If True, show what would happen without doing it
-        force (bool): If True, skip confirmation prompt
-        recursive (bool): If True, scan subdirectories
-        quiet (bool): If True, suppress output
+        files (list): List of dicts as returned by scan_directory()
 
     Returns:
-        dict: Statistics about what was done
+        dict: category name -> list of file-info dicts in that category
     """
-    # Scan the directory
-    files = scan_directory(directory, recursive)
+    categories = {}
+    for f in files:
+        cat = f["category"]
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(f)
+    return categories
 
-    if not files:
-        if not quiet:
-            print("Nothing to organize — folder is already clean!")
-        return {"moved": 0, "categories": {}}
 
-    # Show what would be organized
-    if not quiet:
-        print(f"Found {len(files)} files to organize:")
-        print()
+def print_organize_preview(files):
+    """
+    Print the "Found N files..." breakdown, grouped by category, that
+    the user sees before anything is moved. Used for both normal runs
+    (before the confirmation prompt) and --dry-run.
+    """
+    print(f"Found {len(files)} files to organize:")
+    print()
 
-        # Group files by category for display
-        categories = {}
-        for f in files:
-            cat = f["category"]
-            if cat not in categories:
-                categories[cat] = []
-            categories[cat].append(f)
+    categories = group_files_by_category(files)
 
-        for cat, cat_files in sorted(categories.items()):
-            total_size = sum(f["size"] for f in cat_files)
-            print(f"  {cat}: {len(cat_files)} files ({format_size(total_size)})")
-            for f in cat_files:
-                print(f"    - {f['name']} ({format_size(f['size'])})")
+    for cat, cat_files in sorted(categories.items()):
+        total_size = sum(f["size"] for f in cat_files)
+        print(f"  {cat}: {len(cat_files)} files ({format_size(total_size)})")
+        for f in cat_files:
+            print(f"    - {f['name']} ({format_size(f['size'])})")
 
-        print()
-        print(f"Total: {len(files)} files")
+    print()
+    print(f"Total: {len(files)} files")
 
-    # If dry run, stop here
-    if dry_run:
-        if not quiet:
-            print()
-            print("DRY RUN — no files will be moved")
-        return {"moved": len(files), "categories": {}}
 
-    # Ask for confirmation (unless --force)
-    if not force and not quiet:
-        print()
-        answer = input("Proceed? (y/n): ").strip().lower()
-        if answer not in ("y", "yes"):
-            print("Cancelled.")
-            return {"moved": 0, "categories": {}}
-        print()
+def confirm_proceed(force, quiet):
+    """
+    Ask the user to confirm before moving files, unless --force or
+    --quiet was passed.
 
-    # Move the files
+    WHY force/quiet both skip the prompt: --force is an explicit "I
+    already know what I want, don't ask"; --quiet implies the same,
+    since there'd be no visible prompt for the user to answer if we
+    tried (input() would block forever with no context on screen).
+
+    Args:
+        force (bool): If True, skip the prompt and proceed
+        quiet (bool): If True, skip the prompt and proceed
+
+    Returns:
+        bool: True if the operation should proceed
+    """
+    if force or quiet:
+        return True
+
+    print()
+    answer = input("Proceed? (y/n): ").strip().lower()
+    if answer not in ("y", "yes"):
+        print("Cancelled.")
+        return False
+
+    print()
+    return True
+
+
+def move_files(files, directory, quiet):
+    """
+    Move each file into its category subfolder, skipping duplicates
+    and recording every successful move so it can be undone later.
+
+    HOW: for each file, ensures its category folder exists
+    (Path.mkdir(exist_ok=True) is a no-op if it's already there), then
+    uses shutil.move() to relocate the file. Every successful move is
+    appended to log_entries in "from: (new location), to: (old
+    location)" form — reversed naming on purpose, since that's exactly
+    the shape undo_organize() needs to move things back (see that
+    function's docstring).
+
+    WHY duplicates are skipped rather than overwritten: silently
+    overwriting a same-named file in the destination folder could
+    destroy data with no way to recover it, so we leave both files in
+    place and let the user resolve the conflict manually.
+
+    WHY the broad except around shutil.move: a move can fail for many
+    OS-level reasons (permissions, disk full, cross-device edge cases)
+    that we can't predict in advance; reporting the error and moving
+    on to the next file is better than aborting the whole batch.
+
+    Args:
+        files (list): List of dicts as returned by scan_directory()
+        directory (str): The root directory being organized
+        quiet (bool): If True, suppress per-file output
+
+    Returns:
+        tuple: (stats dict, log_entries list)
+    """
     stats = {"moved": 0, "categories": {}}
     log_entries = []
 
@@ -234,7 +296,7 @@ def organize_files(directory, dry_run=False, force=False, recursive=False, quiet
             # Move the file
             shutil.move(f["path"], str(destination))
 
-            # Record the move
+            # Record the move (reversed from/to — see docstring)
             log_entries.append({
                 "from": str(destination),
                 "to": f["path"],
@@ -254,19 +316,90 @@ def organize_files(directory, dry_run=False, force=False, recursive=False, quiet
             if not quiet:
                 print(f"  ERROR: {f['name']} — {e}")
 
-    # Save log file
+    return stats, log_entries
+
+
+def write_log(directory, log_entries):
+    """
+    Persist the list of moves to a hidden log file so undo_organize()
+    can reverse them later.
+
+    HOW: writes plain JSON via the standard library (imported locally
+    since it's only needed here) — no external dependency required for
+    something this small.
+
+    Args:
+        directory (str): The root directory being organized
+        log_entries (list): Entries produced by move_files()
+    """
     log_file = Path(directory) / ".organize.log"
     with open(log_file, "w") as file:
-        # Simple JSON write (no external dependencies)
         import json
         json.dump(log_entries, file, indent=2)
 
+
+def print_organize_summary(stats):
+    """Print the final "Done! Moved N files." summary with a per-category breakdown."""
+    print()
+    print(f"Done! Moved {stats['moved']} files.")
+    for cat, count in stats["categories"].items():
+        print(f"  {cat}: {count} files")
+
+
+def organize_files(directory, dry_run=False, force=False, recursive=False, quiet=False):
+    """
+    Organize files in a directory by moving them into category folders.
+
+    HOW: this is the main orchestration function — it scans, shows a
+    preview, optionally stops for --dry-run, asks for confirmation
+    (unless skipped), then delegates the actual moving and logging to
+    move_files()/write_log(), and finally prints a summary.
+
+    Args:
+        directory (str): Path to the directory to organize
+        dry_run (bool): If True, show what would happen without doing it
+        force (bool): If True, skip confirmation prompt
+        recursive (bool): If True, scan subdirectories
+        quiet (bool): If True, suppress output
+
+    Returns:
+        dict: Statistics about what was done
+    """
+    # Scan the directory
+    files = scan_directory(directory, recursive)
+
+    if not files:
+        if not quiet:
+            print("Nothing to organize — folder is already clean!")
+        return {"moved": 0, "categories": {}}
+
+    # Show what would be organized
+    if not quiet:
+        print_organize_preview(files)
+
+    # If dry run, stop here.
+    # NOTE: the returned "moved" count here means "would move" — it's
+    # a bit of a naming quirk carried over from the original design,
+    # but it's what callers (and the CLI output below) rely on.
+    if dry_run:
+        if not quiet:
+            print()
+            print("DRY RUN — no files will be moved")
+        return {"moved": len(files), "categories": {}}
+
+    # Ask for confirmation (unless --force or --quiet)
+    if not confirm_proceed(force, quiet):
+        return {"moved": 0, "categories": {}}
+
+    # Move the files and record what happened
+    stats, log_entries = move_files(files, directory, quiet)
+
+    # Save log file so the move can be undone later
+    write_log(directory, log_entries)
+
     # Print summary
     if not quiet:
-        print()
-        print(f"Done! Moved {stats['moved']} files.")
-        for cat, count in stats["categories"].items():
-            print(f"  {cat}: {count} files")
+        print_organize_summary(stats)
 
     return stats
 
@@ -274,6 +407,13 @@ def organize_files(directory, dry_run=False, force=False, recursive=False, quiet
 def undo_organize(directory, quiet=False):
     """
     Undo the last organize operation.
+
+    HOW: reads the JSON log written by write_log(), then replays each
+    entry's move in reverse — moving from entry["from"] (the category
+    subfolder where organize_files() put it) back to entry["to"] (its
+    original location). Entries are processed in reverse chronological
+    order, which matters if a later organize run reused a filename
+    that an earlier run had already claimed.
 
     Args:
         directory (str): Path to the directory to undo

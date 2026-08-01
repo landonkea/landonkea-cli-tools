@@ -29,6 +29,16 @@ def word_count(filename):
     """
     Count words, lines, and characters in a file.
 
+    HOW: reads the whole file into memory, then relies on str.split()
+    for both the line and word counts. `content.split("\\n")` splits
+    strictly on newline characters; `content.split()` (no argument)
+    splits on any run of whitespace, which is Python's idiomatic way
+    to count "words" without writing custom parsing.
+
+    WHY read the whole file rather than stream it: these files are
+    expected to be small utility-script-sized text files, so simplicity
+    wins over the memory efficiency of a line-by-line read.
+
     Args:
         filename (str): Path to the file
 
@@ -67,7 +77,21 @@ def word_count(filename):
 
 def search_file(filename, pattern, ignore_case=False, line_numbers=True):
     """
-    Search for text in a file.
+    Search for text in a file, returning every line that contains the
+    given substring.
+
+    HOW: iterates the file line by line with enumerate(f, 1) so
+    line_num naturally starts at 1 (matching how line numbers are
+    normally displayed to humans, unlike Python's 0-based indexing).
+    For case-insensitive search, both the line and the pattern are
+    lowercased before comparing — lowercasing both sides is what makes
+    the comparison case-insensitive, rather than needing a separate
+    case-insensitive string method.
+
+    WHY line-by-line here (unlike word_count, which reads it all at
+    once): a search only needs to look at one line at a time, so
+    streaming avoids holding the whole file in memory for potentially
+    large files.
 
     Args:
         filename (str): Path to the file
@@ -96,6 +120,8 @@ def search_file(filename, pattern, ignore_case=False, line_numbers=True):
                 if pattern_to_check in line_to_check:
                     matches.append({
                         "line_num": line_num,
+                        # rstrip only the trailing newline so we don't also
+                        # strip meaningful trailing spaces from the line
                         "line": line.rstrip("\n"),
                     })
     except UnicodeDecodeError:
@@ -107,7 +133,19 @@ def search_file(filename, pattern, ignore_case=False, line_numbers=True):
 
 def replace_in_file(filename, old_text, new_text, dry_run=False):
     """
-    Replace text in a file.
+    Replace all occurrences of a substring in a file.
+
+    HOW: str.count() first tells us how many replacements *would*
+    happen, which lets us report that number and (in dry-run mode)
+    preview affected lines without touching the file at all. The
+    actual replacement uses str.replace(), which is a plain literal
+    substring replacement — not a regular expression — so characters
+    like "." or "*" in old_text are matched exactly, not as patterns.
+
+    WHY read-then-write instead of editing in place: Python has no
+    built-in "find and replace in a file" — the straightforward way is
+    to read the full content, transform the string in memory, then
+    overwrite the file with the new content.
 
     Args:
         filename (str): Path to the file
@@ -160,9 +198,45 @@ def replace_in_file(filename, old_text, new_text, dry_run=False):
     return count
 
 
-def main():
+def run_wc_command(args):
+    """Handle the `wc` subcommand: print line/word/char/byte counts."""
+    stats = word_count(args.file)
+    if stats:
+        print(f"  {stats['lines']:>6} lines")
+        print(f"  {stats['words']:>6} words")
+        print(f"  {stats['chars']:>6} characters")
+        print(f"  {stats['bytes']:>6} bytes")
+
+
+def run_search_command(args):
+    """Handle the `search` subcommand: print each matching line, prefixed with its line number."""
+    matches = search_file(args.file, args.pattern, args.ignore_case)
+    if matches:
+        for m in matches:
+            print(f"{m['line_num']:>4}: {m['line']}")
+    else:
+        print("No matches found")
+
+
+def run_replace_command(args):
+    """Handle the `replace` subcommand: perform (or preview) the substitution."""
+    replace_in_file(args.file, args.old, args.new, args.dry_run)
+
+
+def build_arg_parser():
     """
-    Main entry point for text tools.
+    Build the argparse parser and its `wc` / `search` / `replace`
+    subcommands.
+
+    WHY subparsers: each command takes a different set of arguments
+    (wc needs just a file; search needs a file + pattern + optional
+    flag; replace needs a file + old + new + optional flag), and
+    argparse's subparsers give each its own isolated argument set and
+    its own --help text, rather than one big parser trying to validate
+    all combinations at once.
+
+    Returns:
+        argparse.ArgumentParser: the configured parser
     """
     parser = argparse.ArgumentParser(
         description="Text processing utilities",
@@ -182,7 +256,6 @@ Examples:
         """
     )
 
-    # Subcommands
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # wc command
@@ -210,6 +283,19 @@ Examples:
         help="Show what would happen without doing it"
     )
 
+    return parser
+
+
+def main():
+    """
+    Main entry point for text tools.
+
+    HOW: builds the parser, then dispatches to the matching
+    run_*_command() handler based on which subcommand was used. If no
+    subcommand was given, prints help instead of erroring — friendlier
+    for a beginner just trying the tool for the first time.
+    """
+    parser = build_arg_parser()
     args = parser.parse_args()
 
     if args.command is None:
@@ -217,23 +303,11 @@ Examples:
         return
 
     if args.command == "wc":
-        stats = word_count(args.file)
-        if stats:
-            print(f"  {stats['lines']:>6} lines")
-            print(f"  {stats['words']:>6} words")
-            print(f"  {stats['chars']:>6} characters")
-            print(f"  {stats['bytes']:>6} bytes")
-
+        run_wc_command(args)
     elif args.command == "search":
-        matches = search_file(args.file, args.pattern, args.ignore_case)
-        if matches:
-            for m in matches:
-                print(f"{m['line_num']:>4}: {m['line']}")
-        else:
-            print("No matches found")
-
+        run_search_command(args)
     elif args.command == "replace":
-        replace_in_file(args.file, args.old, args.new, args.dry_run)
+        run_replace_command(args)
 
 
 if __name__ == "__main__":

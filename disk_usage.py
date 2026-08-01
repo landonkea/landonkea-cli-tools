@@ -24,6 +24,11 @@ def format_size(size_bytes):
     """
     Convert bytes to human-readable format.
 
+    HOW: repeatedly divide by 1024 and move to the next unit (KB, MB,
+    GB, TB) until the value is under 1024 or we run out of units. This
+    matches binary/1024-based sizing, the convention most file
+    browsers and disk tools use.
+
     Args:
         size_bytes (int): Size in bytes
 
@@ -53,7 +58,19 @@ def format_size(size_bytes):
 
 def get_directory_size(path):
     """
-    Calculate the total size of a directory.
+    Calculate the total size of a directory by summing every file
+    inside it, recursively.
+
+    HOW: Path.rglob("*") walks the directory tree (like `find`), and
+    we add up st_size for every entry that is a regular file
+    (directories themselves report a size, but it's not meaningful
+    disk usage, so it's skipped).
+
+    WHY the broad except: while walking a large tree it's common to
+    hit a folder we don't have permission to read (e.g. system
+    directories), or one that's been deleted mid-walk. Rather than
+    crash the whole scan over one unreadable subfolder, we simply stop
+    counting for that branch and return what we've gathered so far.
 
     Args:
         path (Path): The directory path
@@ -74,41 +91,81 @@ def get_directory_size(path):
     return total_size
 
 
-def scan_directory(directory, top_n=10):
+def validate_directory(dir_path, directory):
     """
-    Scan a directory and get sizes of subdirectories.
+    Check that the given path exists and is a directory.
+
+    WHY this is split out: scan_directory() needs to bail out early
+    with a helpful message in two different invalid-input cases
+    (missing path, path is a file not a directory). Isolating the
+    check keeps scan_directory() focused on scanning.
 
     Args:
-        directory (str): Path to scan
-        top_n (int): Number of top items to show
+        dir_path (Path): The resolved Path object to check
+        directory (str): The original user-supplied string, used in
+            error messages so they match what the user typed
 
     Returns:
-        list: List of dicts with name, size, path
+        bool: True if dir_path is a valid, usable directory
     """
-    dir_path = Path(directory)
-    results = []
-
     if not dir_path.exists():
         print(f"Error: Directory '{directory}' does not exist")
-        return results
+        return False
 
     if not dir_path.is_dir():
         print(f"Error: '{directory}' is not a directory")
-        return results
+        return False
 
-    # Get the total size of the directory itself
+    return True
+
+
+def build_root_entry(directory, dir_path):
+    """
+    Build the result entry representing the scanned directory itself
+    (its total recursive size), so it appears alongside its children
+    in the results list.
+
+    Args:
+        directory (str): The original user-supplied path string
+        dir_path (Path): The resolved Path object
+
+    Returns:
+        dict: name, size, path, and is_dir for the root directory
+    """
     total_size = get_directory_size(dir_path)
-    results.append({
+    return {
         "name": directory,
         "size": total_size,
         "path": str(dir_path),
         "is_dir": True,
-    })
+    }
 
-    # Scan immediate children
+
+def scan_children(dir_path):
+    """
+    Scan the immediate children (not grandchildren) of a directory and
+    compute each one's size.
+
+    HOW: iterates only the direct entries via Path.iterdir() (unlike
+    get_directory_size, which recurses). For a child that's itself a
+    directory, its size is the recursive total of everything inside
+    it; for a file, it's just that file's own size.
+
+    WHY hidden files are skipped: dotfiles (.git, .DS_Store, etc.) are
+    usually noise for a "what's taking up space" report and clutter
+    the output — this mirrors how most GUI file browsers hide them by
+    default.
+
+    Args:
+        dir_path (Path): The directory whose children to scan
+
+    Returns:
+        list: List of dicts with name, size, path, is_dir for each child
+    """
+    results = []
+
     try:
         for item in sorted(dir_path.iterdir()):
-            # Skip hidden files
             if item.name.startswith("."):
                 continue
 
@@ -125,10 +182,39 @@ def scan_directory(directory, top_n=10):
                     "is_dir": item.is_dir(),
                 })
             except (PermissionError, OSError):
-                # Skip items we can't access
+                # Skip items we can't access (e.g. broken symlinks, permission-denied entries)
                 pass
     except (PermissionError, OSError):
+        # iterdir() itself can fail if we lack permission to list the directory at all
         pass
+
+    return results
+
+
+def scan_directory(directory, top_n=10):
+    """
+    Scan a directory and get sizes of the directory itself plus its
+    immediate children, sorted largest-first.
+
+    HOW: delegates to validate_directory (input checking),
+    build_root_entry (the directory's own total size), and
+    scan_children (each child's size), then sorts everything together
+    and truncates to the requested count.
+
+    Args:
+        directory (str): Path to scan
+        top_n (int): Number of top items to show
+
+    Returns:
+        list: List of dicts with name, size, path
+    """
+    dir_path = Path(directory)
+
+    if not validate_directory(dir_path, directory):
+        return []
+
+    results = [build_root_entry(directory, dir_path)]
+    results.extend(scan_children(dir_path))
 
     # Sort by size (largest first)
     results.sort(key=lambda x: x["size"], reverse=True)
@@ -139,7 +225,12 @@ def scan_directory(directory, top_n=10):
 
 def display_results(results, show_tree=False):
     """
-    Display disk usage results.
+    Display disk usage results as an aligned text table.
+
+    HOW: computes the widest name to align columns, then prints each
+    row padded to that width. Directory names get a trailing "/" to
+    distinguish them from files at a glance, and long names are
+    truncated with "..." so the table doesn't wrap or misalign.
 
     Args:
         results (list): List of dicts with name, size, path
