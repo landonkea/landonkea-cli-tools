@@ -14,8 +14,6 @@ Examples:
     python file_organize.py ~/Downloads --force
 """
 
-import os
-import sys
 import shutil
 import argparse
 from pathlib import Path

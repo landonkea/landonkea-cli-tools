@@ -14,8 +14,6 @@ Examples:
     python disk_usage.py / --top 5
 """
 
-import os
-import sys
 import argparse
 from pathlib import Path
 

@@ -9,7 +9,6 @@ Or: python test_tools.py
 import os
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 
 # Add parent directory to path so we can import our tools

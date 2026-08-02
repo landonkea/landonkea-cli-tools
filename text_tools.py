@@ -19,8 +19,6 @@ Examples:
     python text_tools.py replace README.md "old" "new"
 """
 
-import os
-import sys
 import argparse
 from pathlib import Path
 

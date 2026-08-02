@@ -16,7 +16,6 @@ import os
 import sys
 import platform
 import argparse
-from pathlib import Path
 
 
 def get_os_info():
