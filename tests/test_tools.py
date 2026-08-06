@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from file_organizer import get_category, scan_directory, format_size, organize_files, undo_organize
 from text_tools import word_count, search_file, replace_in_file
 from disk_usage import scan_directory as disk_scan
+from system_info import get_os_info, get_python_info, get_cpu_info, get_info_dict
 
 
 def test_get_category():
@@ -178,6 +179,65 @@ def test_disk_scan():
         assert len(results) >= 3
 
 
+def test_replace_in_file_rejects_empty_old_text():
+    """
+    Regression test for a real bug: replace_in_file(..., old_text="")
+    used to call content.replace("", new_text), which inserts new_text
+    between every single character in the file instead of doing
+    anything meaningful. It should now be rejected up front and leave
+    the file untouched.
+    """
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("ab")
+        f.flush()
+
+        try:
+            count = replace_in_file(f.name, "", "X")
+            assert count == 0
+
+            with open(f.name) as f2:
+                # File must be unchanged — no "XaXbX" corruption
+                assert f2.read() == "ab"
+        finally:
+            os.unlink(f.name)
+
+
+def test_get_os_info():
+    """Test that OS info returns the expected keys with non-empty values."""
+    info = get_os_info()
+    assert set(info.keys()) == {
+        "system", "release", "version", "machine", "processor", "platform"
+    }
+    # system (e.g. "Darwin"/"Linux"/"Windows") should never be empty
+    assert info["system"]
+
+
+def test_get_python_info():
+    """Test that Python interpreter info is reported correctly."""
+    info = get_python_info()
+    assert info["implementation"] in ("CPython", "PyPy", "Jython", "IronPython")
+    assert info["executable"] == sys.executable
+
+
+def test_get_cpu_info():
+    """
+    Test CPU info: cores should be a positive int (or "N/A" fallback on
+    the rare platform where os.cpu_count() can't tell), and load_avg
+    should either be a 3-tuple of floats (POSIX) or None (Windows).
+    """
+    info = get_cpu_info()
+    assert info["cores"] == "N/A" or (isinstance(info["cores"], int) and info["cores"] > 0)
+    assert info["load_avg"] is None or len(info["load_avg"]) == 3
+
+
+def test_get_info_dict_shape():
+    """Test that the --json payload includes every top-level section."""
+    info = get_info_dict()
+    assert set(info.keys()) == {
+        "os", "python", "cpu", "disk", "current_dir", "user", "home"
+    }
+
+
 def run_all_tests():
     """Run all tests and report results."""
     tests = [
@@ -189,6 +249,11 @@ def run_all_tests():
         test_search_file,
         test_replace_in_file,
         test_disk_scan,
+        test_replace_in_file_rejects_empty_old_text,
+        test_get_os_info,
+        test_get_python_info,
+        test_get_cpu_info,
+        test_get_info_dict_shape,
     ]
 
     passed = 0

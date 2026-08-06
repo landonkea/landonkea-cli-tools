@@ -268,6 +268,11 @@ def display_results(results, show_tree=False):
 def main():
     """
     Main entry point for disk usage tool.
+
+    HOW: --json bypasses display_results()'s aligned-table formatting and
+    dumps the raw list of result dicts instead — mirrors the --json flag
+    system_info.py already offers, so both tools can be piped into other
+    scripts/`jq` the same way instead of scraping human-formatted text.
     """
     parser = argparse.ArgumentParser(
         description="Show disk usage for directories",
@@ -277,6 +282,7 @@ Examples:
   %(prog)s .                  Show current directory usage
   %(prog)s ~/Downloads        Show Downloads usage
   %(prog)s / --top 5          Show top 5 largest in root
+  %(prog)s . --json           Output as JSON
         """
     )
 
@@ -292,12 +298,22 @@ Examples:
         default=10,
         help="Number of top items to show (default: 10)"
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON instead of a text table"
+    )
 
     args = parser.parse_args()
 
     # Scan and display
     results = scan_directory(args.directory, args.top)
-    display_results(results)
+
+    if args.json:
+        import json
+        print(json.dumps(results, indent=2))
+    else:
+        display_results(results)
 
 
 if __name__ == "__main__":

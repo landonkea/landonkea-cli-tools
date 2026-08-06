@@ -160,6 +160,16 @@ def replace_in_file(filename, old_text, new_text, dry_run=False):
         print(f"Error: File '{filename}' does not exist")
         return 0
 
+    # BUG GUARD: an empty old_text is a real edge case, not a hypothetical
+    # one — "".count(...) matches "between every character", so
+    # content.replace("", new_text) would insert new_text before, after,
+    # and between every single character in the file (e.g. "ab" ->
+    # "XaXbX"). That's not a meaningful "replace" and would silently
+    # corrupt the file, so it's rejected up front instead.
+    if old_text == "":
+        print("Error: old_text cannot be empty")
+        return 0
+
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()

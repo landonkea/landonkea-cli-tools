@@ -64,6 +64,33 @@ def get_python_info():
     }
 
 
+def get_cpu_info():
+    """
+    Get CPU core count and recent load average.
+
+    HOW: os.cpu_count() is cross-platform (works on macOS/Linux/Windows)
+    and returns None only in the rare case the OS won't report it, so
+    that's guarded with an "N/A" fallback like get_os_info() does for
+    processor(). os.getloadavg() (1/5/15-minute averages) is POSIX-only
+    — like get_disk_info()'s statvfs() call, it raises AttributeError on
+    Windows, so that's caught the same way and reported as unavailable
+    rather than crashing the whole report.
+
+    Returns:
+        dict: CPU core count and load averages (load_avg is None where
+            unsupported, e.g. Windows)
+    """
+    try:
+        load_avg = os.getloadavg()
+    except (OSError, AttributeError):
+        load_avg = None
+
+    return {
+        "cores": os.cpu_count() or "N/A",
+        "load_avg": load_avg,
+    }
+
+
 def get_disk_info(path="."):
     """
     Get disk usage information for a path.
@@ -155,6 +182,24 @@ def print_python_section(py_info):
     print()
 
 
+def print_cpu_section(cpu_info):
+    """
+    Print the "CPU" block of the human-readable report.
+
+    WHY the load_avg None check: get_cpu_info() reports load_avg as None
+    on platforms without os.getloadavg() (Windows), so this prints a
+    fallback message there instead of crashing on unpacking None.
+    """
+    print("CPU:")
+    print(f"  Cores:     {cpu_info['cores']}")
+    if cpu_info["load_avg"]:
+        one, five, fifteen = cpu_info["load_avg"]
+        print(f"  Load Avg:  {one:.2f} (1m)  {five:.2f} (5m)  {fifteen:.2f} (15m)")
+    else:
+        print("  Load Avg:  N/A")
+    print()
+
+
 def print_disk_section(disk_info):
     """
     Print the "Disk Usage" block of the human-readable report.
@@ -205,6 +250,7 @@ def display_info():
 
     print_os_section(get_os_info())
     print_python_section(get_python_info())
+    print_cpu_section(get_cpu_info())
     print_disk_section(get_disk_info())
     print_current_dir_section()
 
@@ -225,6 +271,7 @@ def get_info_dict():
     return {
         "os": get_os_info(),
         "python": get_python_info(),
+        "cpu": get_cpu_info(),
         "disk": get_disk_info(),
         "current_dir": os.getcwd(),
         "user": os.getenv("USER"),
