@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-disk_usage.py — Show disk usage for directories.
+disk_usage.py, Show disk usage for directories.
 
 This script shows how much space files and directories are using,
 sorted by size (largest first).
@@ -151,7 +151,7 @@ def scan_children(dir_path):
 
     WHY hidden files are skipped: dotfiles (.git, .DS_Store, etc.) are
     usually noise for a "what's taking up space" report and clutter
-    the output — this mirrors how most GUI file browsers hide them by
+    the output, this mirrors how most GUI file browsers hide them by
     default.
 
     Args:
@@ -270,7 +270,7 @@ def main():
     Main entry point for disk usage tool.
 
     HOW: --json bypasses display_results()'s aligned-table formatting and
-    dumps the raw list of result dicts instead — mirrors the --json flag
+    dumps the raw list of result dicts instead, mirrors the --json flag
     system_info.py already offers, so both tools can be piped into other
     scripts/`jq` the same way instead of scraping human-formatted text.
     """

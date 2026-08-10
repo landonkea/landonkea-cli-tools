@@ -1,4 +1,4 @@
-# landonkea-cli-tools — Design & Workflow
+# landonkea-cli-tools - Design & Workflow
 
 ## High-Level Overview
 

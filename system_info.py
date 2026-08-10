@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-system_info.py — Display system information.
+system_info.py, Display system information.
 
 Shows operating system, CPU, memory, disk, and Python information.
 
@@ -24,7 +24,7 @@ def get_os_info():
 
     HOW: Everything here comes from the standard library's `platform`
     module, which reads values the OS itself exposes (via uname() on
-    POSIX systems, or the Windows API on Windows) — there's no manual
+    POSIX systems, or the Windows API on Windows), there's no manual
     detection logic needed.
 
     WHY `processor() or "N/A"`: on some platforms (notably macOS and
@@ -72,7 +72,7 @@ def get_cpu_info():
     and returns None only in the rare case the OS won't report it, so
     that's guarded with an "N/A" fallback like get_os_info() does for
     processor(). os.getloadavg() (1/5/15-minute averages) is POSIX-only
-    — like get_disk_info()'s statvfs() call, it raises AttributeError on
+   , like get_disk_info()'s statvfs() call, it raises AttributeError on
     Windows, so that's caught the same way and reported as unavailable
     rather than crashing the whole report.
 
@@ -101,7 +101,7 @@ def get_disk_info(path="."):
 
     WHY os.statvfs and not something simpler: it's part of the standard
     library and needs no extra dependency, but it only exists on
-    POSIX systems (macOS/Linux) — Windows doesn't implement it. The
+    POSIX systems (macOS/Linux), Windows doesn't implement it. The
     except clause catches AttributeError so the script degrades
     gracefully (returns None) instead of crashing on Windows, and
     OSError covers cases like the path not existing or being

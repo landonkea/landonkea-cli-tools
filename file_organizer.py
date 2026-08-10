@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-file_organizer.py — Organize files by type into folders.
+file_organizer.py, Organize files by type into folders.
 
 This script scans a directory and moves files into categorized subfolders
 based on their file extension (Documents, Images, Videos, etc.).
@@ -23,7 +23,7 @@ from datetime import datetime
 # CATEGORY DEFINITIONS
 # Maps file extensions to folder names.
 # Each key is a folder name, each value is a list of extensions.
-# NOTE: ".json" intentionally appears in both "Code" and "Data" — since
+# NOTE: ".json" intentionally appears in both "Code" and "Data", since
 # get_category() returns on the first match found, "Code" wins for
 # .json files simply because it's defined earlier in this dict. That's
 # a deliberate (if slightly arbitrary) tie-break, not a bug.
@@ -67,7 +67,7 @@ def get_category(filename):
         if ext in extensions:
             return category
 
-    # No match found — put it in "Other"
+    # No match found, put it in "Other"
     return "Other"
 
 
@@ -110,7 +110,7 @@ def scan_directory(directory, recursive=False):
     pattern = "**/*" if recursive else "*"
 
     for item in dir_path.glob(pattern):
-        # Skip directories — we only want files
+        # Skip directories, we only want files
         if item.is_dir():
             continue
 
@@ -173,7 +173,7 @@ def group_files_by_category(files):
     Group a flat list of file-info dicts into a dict keyed by category.
 
     HOW: builds the groups with a plain dict instead of
-    collections.defaultdict — this repo intentionally avoids extra
+    collections.defaultdict, this repo intentionally avoids extra
     imports for something this small.
 
     Args:
@@ -251,7 +251,7 @@ def move_files(files, directory, quiet):
     (Path.mkdir(exist_ok=True) is a no-op if it's already there), then
     uses shutil.move() to relocate the file. Every successful move is
     appended to log_entries in "from: (new location), to: (old
-    location)" form — reversed naming on purpose, since that's exactly
+    location)" form, reversed naming on purpose, since that's exactly
     the shape undo_organize() needs to move things back (see that
     function's docstring).
 
@@ -294,7 +294,7 @@ def move_files(files, directory, quiet):
             # Move the file
             shutil.move(f["path"], str(destination))
 
-            # Record the move (reversed from/to — see docstring)
+            # Record the move (reversed from/to, see docstring)
             log_entries.append({
                 "from": str(destination),
                 "to": f["path"],
@@ -312,7 +312,7 @@ def move_files(files, directory, quiet):
 
         except Exception as e:
             if not quiet:
-                print(f"  ERROR: {f['name']} — {e}")
+                print(f"  ERROR: {f['name']}, {e}")
 
     return stats, log_entries
 
@@ -323,7 +323,7 @@ def write_log(directory, log_entries):
     can reverse them later.
 
     HOW: writes plain JSON via the standard library (imported locally
-    since it's only needed here) — no external dependency required for
+    since it's only needed here), no external dependency required for
     something this small.
 
     Args:
@@ -348,7 +348,7 @@ def organize_files(directory, dry_run=False, force=False, recursive=False, quiet
     """
     Organize files in a directory by moving them into category folders.
 
-    HOW: this is the main orchestration function — it scans, shows a
+    HOW: this is the main orchestration function, it scans, shows a
     preview, optionally stops for --dry-run, asks for confirmation
     (unless skipped), then delegates the actual moving and logging to
     move_files()/write_log(), and finally prints a summary.
@@ -368,7 +368,7 @@ def organize_files(directory, dry_run=False, force=False, recursive=False, quiet
 
     if not files:
         if not quiet:
-            print("Nothing to organize — folder is already clean!")
+            print("Nothing to organize, folder is already clean!")
         return {"moved": 0, "categories": {}}
 
     # Show what would be organized
@@ -376,13 +376,13 @@ def organize_files(directory, dry_run=False, force=False, recursive=False, quiet
         print_organize_preview(files)
 
     # If dry run, stop here.
-    # NOTE: the returned "moved" count here means "would move" — it's
+    # NOTE: the returned "moved" count here means "would move", it's
     # a bit of a naming quirk carried over from the original design,
     # but it's what callers (and the CLI output below) rely on.
     if dry_run:
         if not quiet:
             print()
-            print("DRY RUN — no files will be moved")
+            print("DRY RUN, no files will be moved")
         return {"moved": len(files), "categories": {}}
 
     # Ask for confirmation (unless --force or --quiet)
@@ -407,7 +407,7 @@ def undo_organize(directory, quiet=False):
     Undo the last organize operation.
 
     HOW: reads the JSON log written by write_log(), then replays each
-    entry's move in reverse — moving from entry["from"] (the category
+    entry's move in reverse, moving from entry["from"] (the category
     subfolder where organize_files() put it) back to entry["to"] (its
     original location). Entries are processed in reverse chronological
     order, which matters if a later organize run reused a filename
@@ -424,7 +424,7 @@ def undo_organize(directory, quiet=False):
 
     if not log_file.exists():
         if not quiet:
-            print("Nothing to undo — no log file found.")
+            print("Nothing to undo, no log file found.")
         return 0
 
     # Read the log file
@@ -434,7 +434,7 @@ def undo_organize(directory, quiet=False):
 
     if not entries:
         if not quiet:
-            print("Nothing to undo — log is empty.")
+            print("Nothing to undo, log is empty.")
         return 0
 
     # Restore files in reverse order
@@ -447,7 +447,7 @@ def undo_organize(directory, quiet=False):
             restored += 1
         except Exception as e:
             if not quiet:
-                print(f"  ERROR: {Path(entry['to']).name} — {e}")
+                print(f"  ERROR: {Path(entry['to']).name}, {e}")
 
     # Remove the log file
     log_file.unlink()

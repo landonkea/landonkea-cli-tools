@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-text_tools.py — Text processing utilities.
+text_tools.py, Text processing utilities.
 
 Provides common text operations like word count, line count,
 character count, and search.
@@ -82,7 +82,7 @@ def search_file(filename, pattern, ignore_case=False, line_numbers=True):
     line_num naturally starts at 1 (matching how line numbers are
     normally displayed to humans, unlike Python's 0-based indexing).
     For case-insensitive search, both the line and the pattern are
-    lowercased before comparing — lowercasing both sides is what makes
+    lowercased before comparing, lowercasing both sides is what makes
     the comparison case-insensitive, rather than needing a separate
     case-insensitive string method.
 
@@ -137,11 +137,11 @@ def replace_in_file(filename, old_text, new_text, dry_run=False):
     happen, which lets us report that number and (in dry-run mode)
     preview affected lines without touching the file at all. The
     actual replacement uses str.replace(), which is a plain literal
-    substring replacement — not a regular expression — so characters
+    substring replacement, not a regular expression, so characters
     like "." or "*" in old_text are matched exactly, not as patterns.
 
     WHY read-then-write instead of editing in place: Python has no
-    built-in "find and replace in a file" — the straightforward way is
+    built-in "find and replace in a file", the straightforward way is
     to read the full content, transform the string in memory, then
     overwrite the file with the new content.
 
@@ -161,7 +161,7 @@ def replace_in_file(filename, old_text, new_text, dry_run=False):
         return 0
 
     # BUG GUARD: an empty old_text is a real edge case, not a hypothetical
-    # one — "".count(...) matches "between every character", so
+    # one, "".count(...) matches "between every character", so
     # content.replace("", new_text) would insert new_text before, after,
     # and between every single character in the file (e.g. "ab" ->
     # "XaXbX"). That's not a meaningful "replace" and would silently
@@ -300,7 +300,7 @@ def main():
 
     HOW: builds the parser, then dispatches to the matching
     run_*_command() handler based on which subcommand was used. If no
-    subcommand was given, prints help instead of erroring — friendlier
+    subcommand was given, prints help instead of erroring, friendlier
     for a beginner just trying the tool for the first time.
     """
     parser = build_arg_parser()

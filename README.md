@@ -22,7 +22,7 @@ Display system information.
 ## Installation
 
 ```bash
-# No installation needed — these are standalone scripts
+# No installation needed, these are standalone scripts
 python file_organizer.py ~/Downloads
 python disk_usage.py .
 python batch_rename.py "s/old/new/" ~/Photos

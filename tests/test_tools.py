@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_tools.py — Tests for CLI tools.
+test_tools.py, Tests for CLI tools.
 
 Run with: python -m pytest test_tools.py -v
 Or: python test_tools.py
@@ -196,7 +196,7 @@ def test_replace_in_file_rejects_empty_old_text():
             assert count == 0
 
             with open(f.name) as f2:
-                # File must be unchanged — no "XaXbX" corruption
+                # File must be unchanged, no "XaXbX" corruption
                 assert f2.read() == "ab"
         finally:
             os.unlink(f.name)
