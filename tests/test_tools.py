@@ -18,6 +18,7 @@ from file_organizer import get_category, scan_directory, format_size, organize_f
 from text_tools import word_count, search_file, replace_in_file
 from disk_usage import scan_directory as disk_scan
 from system_info import get_os_info, get_python_info, get_cpu_info, get_info_dict
+from batch_rename import parse_pattern, compute_new_name, scan_renames, rename_files
 
 
 def test_get_category():
@@ -238,6 +239,126 @@ def test_get_info_dict_shape():
     }
 
 
+def test_parse_pattern():
+    """Test parsing sed-style s/old/new/flags strings."""
+    assert parse_pattern("s/old/new/") == ("old", "new", "")
+    assert parse_pattern("s/IMG_/vacation_/g") == ("IMG_", "vacation_", "g")
+    assert parse_pattern("s/jpeg/jpg/i") == ("jpeg", "jpg", "i")
+    assert parse_pattern("s/a/b/gi") == ("a", "b", "gi")
+    # Empty new is valid (deleting text), empty old is not.
+    assert parse_pattern("s/remove//") == ("remove", "", "")
+
+
+def assert_raises_value_error(func, *args):
+    """
+    Small helper since this file's tests run via plain function calls
+    (see run_all_tests() below), not pytest, so pytest.raises() isn't
+    available, this repo has no pytest dependency installed.
+    """
+    try:
+        func(*args)
+    except ValueError:
+        return
+    raise AssertionError(f"Expected ValueError from {func.__name__}{args!r}")
+
+
+def test_parse_pattern_rejects_invalid_input():
+    """Test that malformed or unsafe patterns raise ValueError."""
+    assert_raises_value_error(parse_pattern, "not-a-sed-pattern")
+    assert_raises_value_error(parse_pattern, "s/old/new/x")  # unknown flag
+    assert_raises_value_error(parse_pattern, "s//new/")  # empty old, same bug class as replace_in_file
+
+
+def test_compute_new_name():
+    """Test applying a parsed substitution to a single filename."""
+    assert compute_new_name("IMG_001.jpg", "IMG_", "vacation_", "") == "vacation_001.jpg"
+    # No 'g' flag: only the first occurrence is replaced.
+    assert compute_new_name("aa.txt", "a", "b", "") == "ba.txt"
+    # 'g' flag: every occurrence is replaced.
+    assert compute_new_name("aa.txt", "a", "b", "g") == "bb.txt"
+    # 'i' flag: case-insensitive match.
+    assert compute_new_name("PHOTO.JPEG", "jpeg", "jpg", "i") == "PHOTO.jpg"
+    # No match: filename is returned unchanged.
+    assert compute_new_name("report.pdf", "xyz", "abc", "") == "report.pdf"
+    # A literal backslash in the replacement isn't treated as a regex
+    # backreference.
+    assert compute_new_name("a.txt", "a", "x\\1y", "") == "x\\1y.txt"
+
+
+def test_scan_renames():
+    """Test scanning a directory for files that match a rename pattern."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "IMG_001.jpg").write_text("test")
+        (Path(tmpdir) / "IMG_002.jpg").write_text("test")
+        (Path(tmpdir) / "notes.txt").write_text("test")
+
+        renames = scan_renames(tmpdir, "s/IMG_/vacation_/")
+
+        # Only the two IMG_ files match, notes.txt is untouched.
+        assert len(renames) == 2
+        new_names = sorted(r["new_path"].name for r in renames)
+        assert new_names == ["vacation_001.jpg", "vacation_002.jpg"]
+
+
+def test_rename_files_dry_run_does_not_touch_disk():
+    """Test that --dry-run reports matches without renaming anything."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "old_report.pdf").write_text("test")
+
+        result = rename_files(tmpdir, "s/old_/new_/", dry_run=True, quiet=True)
+
+        assert result == {"matched": 1, "renamed": 0}
+        # Original file must still exist, untouched.
+        assert (Path(tmpdir) / "old_report.pdf").exists()
+        assert not (Path(tmpdir) / "new_report.pdf").exists()
+
+
+def test_rename_files_force_renames_on_disk():
+    """Test that --force actually renames matching files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "old_report.pdf").write_text("test content")
+
+        result = rename_files(tmpdir, "s/old_/new_/", force=True, quiet=True)
+
+        assert result == {"matched": 1, "renamed": 1}
+        assert not (Path(tmpdir) / "old_report.pdf").exists()
+        assert (Path(tmpdir) / "new_report.pdf").exists()
+        assert (Path(tmpdir) / "new_report.pdf").read_text() == "test content"
+
+
+def test_rename_files_skips_on_collision():
+    """
+    Test that a rename which would overwrite an existing file is
+    skipped rather than silently destroying the existing file's
+    content.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "old_report.pdf").write_text("original content")
+        (Path(tmpdir) / "new_report.pdf").write_text("do not overwrite me")
+
+        result = rename_files(tmpdir, "s/old_/new_/", force=True, quiet=True)
+
+        assert result == {"matched": 1, "renamed": 0}
+        # Both files still exist, neither was touched.
+        assert (Path(tmpdir) / "old_report.pdf").read_text() == "original content"
+        assert (Path(tmpdir) / "new_report.pdf").read_text() == "do not overwrite me"
+
+
+def test_rename_files_recursive():
+    """Test that --recursive reaches files in subdirectories."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subdir = Path(tmpdir) / "subfolder"
+        subdir.mkdir()
+        (subdir / "old_nested.txt").write_text("test")
+        (Path(tmpdir) / "old_top.txt").write_text("test")
+
+        result = rename_files(tmpdir, "s/old_/new_/", force=True, quiet=True, recursive=True)
+
+        assert result == {"matched": 2, "renamed": 2}
+        assert (subdir / "new_nested.txt").exists()
+        assert (Path(tmpdir) / "new_top.txt").exists()
+
+
 def run_all_tests():
     """Run all tests and report results."""
     tests = [
@@ -254,6 +375,14 @@ def run_all_tests():
         test_get_python_info,
         test_get_cpu_info,
         test_get_info_dict_shape,
+        test_parse_pattern,
+        test_parse_pattern_rejects_invalid_input,
+        test_compute_new_name,
+        test_scan_renames,
+        test_rename_files_dry_run_does_not_touch_disk,
+        test_rename_files_force_renames_on_disk,
+        test_rename_files_skips_on_collision,
+        test_rename_files_recursive,
     ]
 
     passed = 0
