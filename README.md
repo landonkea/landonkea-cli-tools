@@ -34,6 +34,10 @@ python system_info.py
 
 Requires Python 3.7 or higher.
 
+## Releases
+
+`dev` for work in progress, `main` for stable. See [RELEASING.md](RELEASING.md) for how release-candidate and stable tags work.
+
 ## License
 
 MIT
