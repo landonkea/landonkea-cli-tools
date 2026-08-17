@@ -19,6 +19,8 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 
+from _shared import format_size, validate_directory
+
 
 # CATEGORY DEFINITIONS
 # Maps file extensions to folder names.
@@ -95,13 +97,7 @@ def scan_directory(directory, recursive=False):
     results = []
     dir_path = Path(directory)
 
-    # Check if directory exists
-    if not dir_path.exists():
-        print(f"Error: Directory '{directory}' does not exist")
-        return results
-
-    if not dir_path.is_dir():
-        print(f"Error: '{directory}' is not a directory")
+    if not validate_directory(dir_path, directory):
         return results
 
     # Use glob to find files
@@ -131,41 +127,6 @@ def scan_directory(directory, recursive=False):
         })
 
     return results
-
-
-def format_size(size_bytes):
-    """
-    Convert bytes to human-readable format.
-
-    HOW: repeatedly divide by 1024 and move to the next unit until the
-    value is small enough, matching how most file browsers display
-    sizes.
-
-    Args:
-        size_bytes (int): Size in bytes
-
-    Returns:
-        str: Human-readable size string
-
-    Examples:
-        >>> format_size(0)
-        '0 B'
-        >>> format_size(1024)
-        '1.0 KB'
-        >>> format_size(1048576)
-        '1.0 MB'
-    """
-    if size_bytes == 0:
-        return "0 B"
-
-    units = ["B", "KB", "MB", "GB", "TB"]
-    unit_index = 0
-
-    while size_bytes >= 1024 and unit_index < len(units) - 1:
-        size_bytes /= 1024.0
-        unit_index += 1
-
-    return f"{size_bytes:.1f} {units[unit_index]}"
 
 
 def group_files_by_category(files):

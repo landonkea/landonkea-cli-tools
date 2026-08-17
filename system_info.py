@@ -17,6 +17,8 @@ import sys
 import platform
 import argparse
 
+from _shared import format_size
+
 
 def get_os_info():
     """
@@ -128,37 +130,6 @@ def get_disk_info(path="."):
         }
     except (OSError, AttributeError):
         return None
-
-
-def format_size(size_bytes):
-    """
-    Convert bytes to human-readable format.
-
-    HOW: repeatedly divide by 1024 and move to the next unit (KB, MB,
-    GB, TB) until the value is under 1024 or we run out of units. This
-    mirrors how most OS file browsers display sizes (binary/1024-based
-    units, not decimal/1000-based "SI" units).
-
-    Args:
-        size_bytes (int): Size in bytes
-
-    Returns:
-        str: Human-readable size string
-    """
-    if size_bytes is None:
-        return "N/A"
-
-    if size_bytes == 0:
-        return "0 B"
-
-    units = ["B", "KB", "MB", "GB", "TB"]
-    unit_index = 0
-
-    while size_bytes >= 1024 and unit_index < len(units) - 1:
-        size_bytes /= 1024.0
-        unit_index += 1
-
-    return f"{size_bytes:.1f} {units[unit_index]}"
 
 
 def print_os_section(os_info):

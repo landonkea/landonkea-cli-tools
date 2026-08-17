@@ -17,41 +17,7 @@ Examples:
 import argparse
 from pathlib import Path
 
-
-def format_size(size_bytes):
-    """
-    Convert bytes to human-readable format.
-
-    HOW: repeatedly divide by 1024 and move to the next unit (KB, MB,
-    GB, TB) until the value is under 1024 or we run out of units. This
-    matches binary/1024-based sizing, the convention most file
-    browsers and disk tools use.
-
-    Args:
-        size_bytes (int): Size in bytes
-
-    Returns:
-        str: Human-readable size string
-
-    Examples:
-        >>> format_size(0)
-        '0 B'
-        >>> format_size(1024)
-        '1.0 KB'
-        >>> format_size(1048576)
-        '1.0 MB'
-    """
-    if size_bytes == 0:
-        return "0 B"
-
-    units = ["B", "KB", "MB", "GB", "TB"]
-    unit_index = 0
-
-    while size_bytes >= 1024 and unit_index < len(units) - 1:
-        size_bytes /= 1024.0
-        unit_index += 1
-
-    return f"{size_bytes:.1f} {units[unit_index]}"
+from _shared import format_size, validate_directory
 
 
 def get_directory_size(path):
@@ -69,6 +35,10 @@ def get_directory_size(path):
     directories), or one that's been deleted mid-walk. Rather than
     crash the whole scan over one unreadable subfolder, we simply stop
     counting for that branch and return what we've gathered so far.
+
+    Kept as its own function since it's also useful standalone (e.g.
+    from a REPL or another script) for "how big is this one directory"
+    without the top-N/sibling scanning scan_directory() does.
 
     Args:
         path (Path): The directory path
@@ -89,130 +59,71 @@ def get_directory_size(path):
     return total_size
 
 
-def validate_directory(dir_path, directory):
-    """
-    Check that the given path exists and is a directory.
-
-    WHY this is split out: scan_directory() needs to bail out early
-    with a helpful message in two different invalid-input cases
-    (missing path, path is a file not a directory). Isolating the
-    check keeps scan_directory() focused on scanning.
-
-    Args:
-        dir_path (Path): The resolved Path object to check
-        directory (str): The original user-supplied string, used in
-            error messages so they match what the user typed
-
-    Returns:
-        bool: True if dir_path is a valid, usable directory
-    """
-    if not dir_path.exists():
-        print(f"Error: Directory '{directory}' does not exist")
-        return False
-
-    if not dir_path.is_dir():
-        print(f"Error: '{directory}' is not a directory")
-        return False
-
-    return True
-
-
-def build_root_entry(directory, dir_path):
-    """
-    Build the result entry representing the scanned directory itself
-    (its total recursive size), so it appears alongside its children
-    in the results list.
-
-    Args:
-        directory (str): The original user-supplied path string
-        dir_path (Path): The resolved Path object
-
-    Returns:
-        dict: name, size, path, and is_dir for the root directory
-    """
-    total_size = get_directory_size(dir_path)
-    return {
-        "name": directory,
-        "size": total_size,
-        "path": str(dir_path),
-        "is_dir": True,
-    }
-
-
-def scan_children(dir_path):
-    """
-    Scan the immediate children (not grandchildren) of a directory and
-    compute each one's size.
-
-    HOW: iterates only the direct entries via Path.iterdir() (unlike
-    get_directory_size, which recurses). For a child that's itself a
-    directory, its size is the recursive total of everything inside
-    it; for a file, it's just that file's own size.
-
-    WHY hidden files are skipped: dotfiles (.git, .DS_Store, etc.) are
-    usually noise for a "what's taking up space" report and clutter
-    the output, this mirrors how most GUI file browsers hide them by
-    default.
-
-    Args:
-        dir_path (Path): The directory whose children to scan
-
-    Returns:
-        list: List of dicts with name, size, path, is_dir for each child
-    """
-    results = []
-
-    try:
-        for item in sorted(dir_path.iterdir()):
-            if item.name.startswith("."):
-                continue
-
-            try:
-                if item.is_dir():
-                    size = get_directory_size(item)
-                else:
-                    size = item.stat().st_size
-
-                results.append({
-                    "name": item.name,
-                    "size": size,
-                    "path": str(item),
-                    "is_dir": item.is_dir(),
-                })
-            except (PermissionError, OSError):
-                # Skip items we can't access (e.g. broken symlinks, permission-denied entries)
-                pass
-    except (PermissionError, OSError):
-        # iterdir() itself can fail if we lack permission to list the directory at all
-        pass
-
-    return results
-
-
 def scan_directory(directory, top_n=10):
     """
     Scan a directory and get sizes of the directory itself plus its
     immediate children, sorted largest-first.
 
-    HOW: delegates to validate_directory (input checking),
-    build_root_entry (the directory's own total size), and
-    scan_children (each child's size), then sorts everything together
-    and truncates to the requested count.
+    HOW: walks the tree exactly once. An earlier version of this
+    function called get_directory_size() on the root (a full recursive
+    walk) and then called it again separately for every child
+    directory (each its own full recursive walk of that subtree), so
+    every file below a first-level subdirectory got stat()'d twice.
+    This version computes each immediate child's total once via
+    get_directory_size(), then derives the root's total as the sum of
+    its children, no repeated walking of the same files.
+
+    Hidden top-level entries (dotfiles/dot-dirs) are excluded from the
+    child listing, same as before, but the root's own total still
+    includes them, since get_directory_size() never filtered hidden
+    entries at any depth and that didn't change here.
 
     Args:
         directory (str): Path to scan
         top_n (int): Number of top items to show
 
     Returns:
-        list: List of dicts with name, size, path
+        list: List of dicts with name, size, path, is_dir, sorted by
+            size descending: the root entry plus up to top_n - 1
+            children
     """
     dir_path = Path(directory)
 
     if not validate_directory(dir_path, directory):
         return []
 
-    results = [build_root_entry(directory, dir_path)]
-    results.extend(scan_children(dir_path))
+    child_entries = []
+    root_total = 0
+
+    try:
+        for item in sorted(dir_path.iterdir()):
+            try:
+                is_dir = item.is_dir()
+                size = get_directory_size(item) if is_dir else item.stat().st_size
+            except (PermissionError, OSError):
+                # Skip items we can't access (e.g. broken symlinks, permission-denied entries)
+                continue
+
+            root_total += size
+
+            if not item.name.startswith("."):
+                child_entries.append({
+                    "name": item.name,
+                    "size": size,
+                    "path": str(item),
+                    "is_dir": is_dir,
+                })
+    except (PermissionError, OSError):
+        # iterdir() itself can fail if we lack permission to list the directory at all
+        pass
+
+    results = [{
+        "name": directory,
+        "size": root_total,
+        "path": str(dir_path),
+        "is_dir": True,
+    }]
+    results.extend(child_entries)
 
     # Sort by size (largest first)
     results.sort(key=lambda x: x["size"], reverse=True)

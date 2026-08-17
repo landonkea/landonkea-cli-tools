@@ -23,6 +23,8 @@ import argparse
 import re
 from pathlib import Path
 
+from _shared import validate_directory
+
 
 def parse_pattern(pattern):
     """
@@ -137,11 +139,7 @@ def scan_renames(directory, pattern, recursive=False):
     old, new, flags = parse_pattern(pattern)
 
     dir_path = Path(directory)
-    if not dir_path.exists():
-        print(f"Error: Directory '{directory}' does not exist")
-        return []
-    if not dir_path.is_dir():
-        print(f"Error: '{directory}' is not a directory")
+    if not validate_directory(dir_path, directory):
         return []
 
     entries = dir_path.rglob("*") if recursive else dir_path.iterdir()
